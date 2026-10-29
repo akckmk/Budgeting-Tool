@@ -16,8 +16,10 @@ android {
         applicationId = "com.budgetingtool.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+        // Phones are ARM; leaving out x86 keeps the OCR engine's native code out of the download twice.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // The release signing key is never part of the repository. Point Gradle at it from your
@@ -82,6 +84,13 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // In-app camera for receipts (photos stay in memory, never saved)
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    // Offline OCR for receipts: open-source Tesseract, no network, no telemetry
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
 
     // On-device PDF text extraction for PDF statements
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")

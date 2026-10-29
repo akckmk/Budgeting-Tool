@@ -1,5 +1,6 @@
 package com.budgetingtool.app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,6 +53,7 @@ import com.budgetingtool.app.data.Txn
 import com.budgetingtool.app.insights.BudgetMath
 import com.budgetingtool.app.ui.MainViewModel
 import com.budgetingtool.app.ui.components.Picker
+import com.budgetingtool.app.ui.theme.Bubble
 import com.budgetingtool.app.ui.theme.budgetColor
 import com.budgetingtool.app.util.Dates
 import com.budgetingtool.app.util.Money
@@ -82,6 +84,8 @@ fun AddEntrySheet(vm: MainViewModel, onDismiss: () -> Unit) {
     var note by remember { mutableStateOf("") }
     var showDate by remember { mutableStateOf(false) }
     var confirmOver by remember { mutableStateOf(false) }
+    var showScanner by remember { mutableStateOf(false) }
+    var fromReceipt by remember { mutableStateOf(false) }
 
     LaunchedEffect(merchant, isIncome) {
         if (!categoryTouched && merchant.length >= 3) {
@@ -100,12 +104,21 @@ fun AddEntrySheet(vm: MainViewModel, onDismiss: () -> Unit) {
     val goesOver = impacts.any { it.goesOver }
     val choosable = cats.filter { if (isIncome) true else it.kind != CategoryKind.INCOME }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+    // The sheet steps aside while the camera is open; everything typed so far is kept.
+    if (!showScanner) ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).imePadding().navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(if (isIncome) "Add income or refund" else "Add a purchase", style = MaterialTheme.typography.titleLarge)
+            if (!isIncome) ScanReceiptButton(onClick = { showScanner = true })
+            if (fromReceipt) {
+                Text(
+                    "✅ Filled in from your receipt. Please check the amount, store and date before saving.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.background(Bubble.Mint.first(), androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(12.dp),
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = !isIncome, onClick = { isIncome = false; confirmOver = false }, label = { Text("Purchase") })
                 FilterChip(selected = isIncome, onClick = { isIncome = true }, label = { Text("Income / refund") })
@@ -189,6 +202,20 @@ fun AddEntrySheet(vm: MainViewModel, onDismiss: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
         }
+    }
+
+    if (showScanner) {
+        ReceiptScanner(
+            onResult = { info ->
+                info.totalCents?.let { amountText = "%d.%02d".format(it / 100, it % 100) }
+                info.merchant?.let { merchant = it; categoryTouched = false }
+                info.date?.let { date = it }
+                fromReceipt = true
+                confirmOver = false
+                showScanner = false
+            },
+            onDismiss = { showScanner = false },
+        )
     }
 
     if (showDate) {

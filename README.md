@@ -13,6 +13,11 @@ to, and share everything live with your spouse's phone with no cloud account.
 - **Live purchases.** Tap *Add purchase* at the register. Before saving, the app warns you if it will
   push a category or your monthly total over budget. When the statement arrives later, the import
   matches the hand-entered purchase instead of counting it twice.
+- **Receipt scanning.** On *Add purchase*, tap **Scan a receipt** and photograph it (or pick a photo).
+  The store, total and date are filled in for you to check. Text recognition runs offline on the
+  phone with the open-source Tesseract engine (no Google ML Kit, no network); the photo is held in
+  memory only and never saved or uploaded. Picking a photo uses Android's photo picker, so the app
+  only sees the one image you choose.
 - **Budget alerts.** A notification at your warning threshold (default 80%) and when you go over, per
   category and overall. Purchases your spouse enters trigger alerts on your phone too.
 - **Savings coach.** Plain-language habits ("About 14 coffee runs a month", "Food delivery 5× a
@@ -58,7 +63,8 @@ deliberately doesn't do that.
 - Data lives in the app's private storage on each phone, which Android encrypts on the device.
   Cloud backup is disabled (`allowBackup=false`, and the data-extraction rules exclude everything).
 - The release build is not debuggable, so the data can't be pulled off the phone over USB.
-- Permissions: local network, notifications, fingerprint. No contacts, location, storage or accounts.
+- Permissions: local network, notifications, fingerprint, camera (receipts only, asked the first time). No
+  contacts, location, storage or accounts.
 - No analytics or third-party SDKs that talk to the internet.
 - Uninstalling deletes the data on that phone. Keep the other phone paired, or save a sync file, as a
   backup.
@@ -96,12 +102,20 @@ The APK is written to `app/build/outputs/apk/release/app-release.apk`. To sign i
 `budgetKeystore=/path/to/keystore.properties` to your user-level `gradle.properties` (outside this
 repository); without it, Gradle builds an unsigned release APK.
 
+## Third-party components
+
+- [Tesseract4Android](https://github.com/adaptech-cz/Tesseract4Android) and the
+  [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) English model (Apache 2.0) for offline OCR.
+- [PdfBox-Android](https://github.com/TomRoush/PdfBox-Android) (Apache 2.0) for PDF statements.
+- AndroidX (Compose, Room, CameraX, Biometric) and kotlinx libraries (Apache 2.0).
+
 ## Project layout
 
 ```
 app/src/main/java/com/budgetingtool/app/
   data/       Room entities + DAOs, repository (import dedupe, reconciliation, LWW merge), categorizer
   importer/   CSV, OFX/QFX, QIF and PDF readers, bank detection
+  receipt/    Offline receipt OCR and total/store/date extraction
   insights/   Budget math, insights engine, savings coach
   alerts/     Over-budget notifications
   sync/       Household crypto, wire protocol, LAN discovery + live sync
