@@ -50,7 +50,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun CoachScreen(vm: MainViewModel) {
-    val txns by vm.txns.collectAsStateWithLifecycle()
+    val txns by vm.visibleTxns.collectAsStateWithLifecycle()
     val cats by vm.categoryMap.collectAsStateWithLifecycle()
     val catList by vm.categories.collectAsStateWithLifecycle()
     val coach = remember(txns, cats) { SavingsCoach(txns, cats) }
@@ -65,6 +65,7 @@ fun CoachScreen(vm: MainViewModel) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item { PersonSwitcher(vm) }
             if (!coach.hasData) {
                 item {
                     BubbleCard(Bubble.Violet) {

@@ -51,12 +51,15 @@ fun CyclesScreen(vm: MainViewModel, onBack: () -> Unit) {
     val today = LocalDate.now()
     var editing by remember { mutableStateOf<Account?>(null) }
     // Cards first; bank accounts only once they have statements or a closing day.
+    val person by vm.viewPerson.collectAsStateWithLifecycle()
     val shown = accounts.filter { it.type == AccountType.CREDIT_CARD || it.closingDay != null || statements.any { s -> s.accountId == it.id } }
+        .filter { person == null || it.owner.equals(person, ignoreCase = true) }
         .sortedBy { if (it.type == AccountType.CREDIT_CARD) 0 else 1 }
-    val bills = remember(statements) { BillingCycles.upcomingBills(statements, today) }
+    val bills = remember(statements, shown) { BillingCycles.upcomingBills(statements.filter { s -> shown.any { it.id == s.accountId } }, today) }
 
     ScreenScaffold("Cards & billing cycles", onBack = onBack) { p ->
         LazyColumn(Modifier.fillMaxSize().padding(p), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { PersonSwitcher(vm) }
             item {
                 BubbleCard(Bubble.Sky, light = true) {
                     Text("How billing cycles fit in", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

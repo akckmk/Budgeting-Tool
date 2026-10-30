@@ -283,6 +283,9 @@ class BudgetRepository(private val db: AppDatabase, private val prefs: Prefs) {
 
     // ---- sync ----
 
+    /** Item counts shown on the sharing screen so both phones can be compared at a glance. */
+    suspend fun counts() = Triple(txnDao.countActive(), statementDao.countActive(), accountDao.active().size)
+
     /** Every row (including tombstones) changed after [since]. */
     suspend fun changesSince(since: Long) = SyncBundle(
         accounts = accountDao.changedSince(since),

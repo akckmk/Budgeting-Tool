@@ -42,7 +42,7 @@ import java.time.YearMonth
 
 @Composable
 fun TransactionsScreen(vm: MainViewModel, onEdit: (Txn) -> Unit) {
-    val txns by vm.txns.collectAsStateWithLifecycle()
+    val txns by vm.visibleTxns.collectAsStateWithLifecycle()
     val cats by vm.categoryMap.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val accountMap = remember(accounts) { accounts.associateBy { it.id } }
@@ -68,6 +68,7 @@ fun TransactionsScreen(vm: MainViewModel, onEdit: (Txn) -> Unit) {
 
     ScreenScaffold("Activity") { p ->
         Column(Modifier.fillMaxSize().padding(p)) {
+            PersonSwitcher(vm, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp))
             OutlinedTextField(
                 query, { query = it },
                 placeholder = { Text("Search merchant, description, note") },

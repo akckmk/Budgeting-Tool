@@ -72,7 +72,7 @@ class InsightsEngine(
     /** Spending per person: who entered it, else whose account it is. */
     fun bySpender(m: YearMonth): List<Pair<String, Long>> =
         month(m).filter { spend(it) != 0L }
-            .groupBy { t -> t.enteredBy.ifBlank { t.accountId?.let { accounts[it]?.owner }.orEmpty() }.ifBlank { "Unassigned" } }
+            .groupBy { t -> People.personOf(t, accounts) }
             .map { (who, l) -> who to l.sumOf(::spend) }
             .sortedByDescending { it.second }
 

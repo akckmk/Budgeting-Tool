@@ -32,6 +32,8 @@ data class ImportPreview(
     val bank: Bank,
     val newAccountName: String,
     val newAccountType: AccountType,
+    /** Whose account a newly created account is: decides whose view its spending shows in. */
+    val newAccountOwner: String = "",
 )
 
 data class ImportUiState(
@@ -88,6 +90,7 @@ class ImportViewModel(app: Application) : AndroidViewModel(app) {
                         bank = bank,
                         newAccountName = defaultName(bank, type, result.last4),
                         newAccountType = type,
+                        newAccountOwner = c.prefs.userName,
                     ),
                 )
             }
@@ -107,6 +110,7 @@ class ImportViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseAccount(id: String?) = editPreview { it.copy(accountId = id) }
     fun setBank(b: Bank) = editPreview { it.copy(bank = b, newAccountName = defaultName(b, it.newAccountType, it.result.last4)) }
     fun setNewAccountName(n: String) = editPreview { it.copy(newAccountName = n) }
+    fun setNewAccountOwner(o: String) = editPreview { it.copy(newAccountOwner = o) }
     fun setNewAccountType(t: AccountType) = editPreview {
         it.copy(newAccountType = t, flip = StatementImporter.suggestFlip(it.result, t), newAccountName = defaultName(it.bank, t, it.result.last4))
     }
@@ -123,7 +127,7 @@ class ImportViewModel(app: Application) : AndroidViewModel(app) {
                         institution = p.bank.display,
                         type = p.newAccountType,
                         last4 = p.result.last4,
-                        owner = c.prefs.userName,
+                        owner = p.newAccountOwner.trim(),
                         updatedAt = 0,
                     ),
                 )

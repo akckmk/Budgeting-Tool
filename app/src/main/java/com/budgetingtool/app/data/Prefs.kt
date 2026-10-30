@@ -54,6 +54,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("background_sync", true)
         set(v) = sp.edit().putBoolean("background_sync", v).apply()
 
+    /** Which person's view is showing (null = combined). Per phone, not synced. */
+    var viewPerson: String?
+        get() = sp.getString("view_person", null)
+        set(v) = sp.edit().putString("view_person", v).apply()
+
     fun alertLevel(key: String): Int = sp.getInt("alert_$key", 0)
     fun setAlertLevel(key: String, level: Int) = sp.edit().putInt("alert_$key", level).apply()
 

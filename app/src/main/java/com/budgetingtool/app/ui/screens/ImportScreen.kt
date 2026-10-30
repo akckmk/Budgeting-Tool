@@ -22,6 +22,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -161,6 +164,14 @@ private fun PreviewPane(p: ImportPreview, vm: ImportViewModel, main: MainViewMod
                         Picker("Bank", Bank.entries, p.bank, { it.display }, vm::setBank)
                         Picker("Type", AccountType.entries, p.newAccountType, { it.label }, vm::setNewAccountType)
                         OutlinedTextField(p.newAccountName, vm::setNewAccountName, label = { Text("Account name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        val people by main.people.collectAsStateWithLifecycle()
+                        Text("Whose account is this?", style = MaterialTheme.typography.labelLarge)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            (people.filter { it != com.budgetingtool.app.insights.People.UNASSIGNED } + "Joint").distinct().forEach { who ->
+                                FilterChip(selected = p.newAccountOwner.equals(who, ignoreCase = true), onClick = { vm.setNewAccountOwner(who) }, label = { Text(who) })
+                            }
+                        }
+                        OutlinedTextField(p.newAccountOwner, vm::setNewAccountOwner, label = { Text("Owner") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
                 }
             }

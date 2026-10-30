@@ -101,6 +101,9 @@ interface TxnDao {
     @Query("SELECT importKey FROM transactions WHERE importKey IS NOT NULL AND importKey IN (:keys)")
     suspend fun existingImportKeys(keys: List<String>): List<String>
 
+    @Query("SELECT COUNT(*) FROM transactions WHERE deleted = 0")
+    suspend fun countActive(): Int
+
     @Query("SELECT * FROM transactions WHERE deleted = 0 AND source = 'MANUAL' AND pending = 1")
     suspend fun pendingManual(): List<Txn>
 
@@ -118,6 +121,9 @@ interface TxnDao {
 interface StatementDao {
     @Query("SELECT * FROM statements WHERE deleted = 0 ORDER BY periodEnd DESC")
     fun observeActive(): Flow<List<Statement>>
+
+    @Query("SELECT COUNT(*) FROM statements WHERE deleted = 0")
+    suspend fun countActive(): Int
 
     @Query("SELECT * FROM statements WHERE id IN (:ids)")
     suspend fun byIds(ids: List<String>): List<Statement>

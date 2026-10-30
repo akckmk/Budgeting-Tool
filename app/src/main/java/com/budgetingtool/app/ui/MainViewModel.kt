@@ -44,6 +44,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val statements: StateFlow<List<com.budgetingtool.app.data.Statement>> =
         repo.statements.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val syncState = c.sync.state
+
+    // ---- whose view: null = combined, else one person's name ----
+    private val _viewPerson = kotlinx.coroutines.flow.MutableStateFlow(c.prefs.viewPerson)
+    val viewPerson: StateFlow<String?> = _viewPerson
+    fun selectPerson(name: String?) {
+        _viewPerson.value = name
+        c.prefs.viewPerson = name
+    }
+
+    val people: StateFlow<List<String>> = kotlinx.coroutines.flow.combine(txns, accounts, _viewPerson) { t, a, _ ->
+        com.budgetingtool.app.insights.People.everyone(t, a, c.prefs.userName)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Transactions for the chosen view. Budgets and alerts always use the whole household ([txns]). */
+    val visibleTxns: StateFlow<List<Txn>> = kotlinx.coroutines.flow.combine(txns, accounts, _viewPerson) { t, a, p ->
+        com.budgetingtool.app.insights.People.filter(t, a.associateBy { it.id }, p)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val pairingState = c.pairing.state
 
     var userName by mutableStateOf(c.prefs.userName)

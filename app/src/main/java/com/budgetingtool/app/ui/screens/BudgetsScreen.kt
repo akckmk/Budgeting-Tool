@@ -64,6 +64,14 @@ fun BudgetsScreen(vm: MainViewModel) {
     }
     val warnAt = vm.warnPercent / 100.0
     val total = statuses.firstOrNull { it.isTotal }
+    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val split = remember(txns, accounts, cats, month) {
+        val map = accounts.associateBy { it.id }
+        BudgetMath.inMonth(txns, month).groupBy { com.budgetingtool.app.insights.People.personOf(it, map) }
+            .mapValues { (_, l) -> l.sumOf { BudgetMath.spending(it, cats) } }
+            .filterValues { it != 0L }
+            .toList().sortedByDescending { it.second }
+    }
 
     ScreenScaffold("Budgets") { p ->
         LazyColumn(Modifier.fillMaxSize().padding(p), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
@@ -73,6 +81,12 @@ fun BudgetsScreen(vm: MainViewModel) {
                     Column(Modifier.padding(16.dp)) {
                         if (total != null) {
                             BudgetBar(total, warnAt) { editing = BudgetEdit(null, total.budget) }
+                            if (split.size > 1) {
+                                Text(
+                                    "Who spent it: " + split.joinToString(" · ") { (who, c) -> "$who ${Money.format(c, false)}" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         } else {
                             Text("Overall monthly limit", style = MaterialTheme.typography.titleMedium)
                             Text("Caps all spending. Transfers and card payments don't count.", style = MaterialTheme.typography.bodySmall)

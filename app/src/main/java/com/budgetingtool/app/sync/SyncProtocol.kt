@@ -29,7 +29,23 @@ sealed class SyncMessage {
 
     @Serializable
     @SerialName("changes")
-    data class Changes(val bundle: SyncBundle) : SyncMessage()
+    data class Changes(
+        val bundle: SyncBundle,
+        /** Sender's clock when the bundle was built; echoed back in [Ack]. 0 = no ack wanted (older app). */
+        val sentAt: Long = 0,
+        /** True when this is everything the sender has (sent at the start of each connection). */
+        val full: Boolean = false,
+    ) : SyncMessage()
+
+    /** "I saved it." Only after this does the sender treat the changes as delivered. */
+    @Serializable
+    @SerialName("ack")
+    data class Ack(
+        val upTo: Long,
+        val transactions: Int = 0,
+        val statements: Int = 0,
+        val accounts: Int = 0,
+    ) : SyncMessage()
 
     @Serializable
     @SerialName("ping")
@@ -50,7 +66,8 @@ sealed class SyncMessage {
     data object JoinDenied : SyncMessage()
 
     companion object {
-        const val PROTOCOL_VERSION = 1
+        /** 2: acknowledged delivery and a full catch-up on every connection. */
+        const val PROTOCOL_VERSION = 2
     }
 }
 

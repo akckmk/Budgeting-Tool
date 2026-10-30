@@ -45,7 +45,7 @@ import java.time.YearMonth
 
 @Composable
 fun InsightsScreen(vm: MainViewModel) {
-    val txns by vm.txns.collectAsStateWithLifecycle()
+    val txns by vm.visibleTxns.collectAsStateWithLifecycle()
     val cats by vm.categoryMap.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val budgets by vm.budgets.collectAsStateWithLifecycle()
@@ -63,6 +63,7 @@ fun InsightsScreen(vm: MainViewModel) {
 
     ScreenScaffold("Insights") { p ->
         LazyColumn(Modifier.fillMaxSize().padding(p), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
+            item { PersonSwitcher(vm) }
             item { MonthSwitcher(month, { month = it }) }
 
             if (total == 0L && totals.all { it.second == 0L }) {

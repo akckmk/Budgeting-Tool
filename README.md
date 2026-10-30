@@ -32,6 +32,11 @@ to, and share everything live with your spouse's phone with no cloud account.
   20 years. Includes a *what if I cut back on…* calculator.
 - **Insights.** Category breakdown, 6-month trend, top merchants, recurring charges and
   subscriptions, who spent what, day-of-week pattern, and pace vs. budget.
+- **Combined and personal views.** A *Combined | Andrew | Caitlin* switch on Home, Activity, Insights,
+  Coach and Cards shows the household together or one person's spending. Imported statement lines
+  belong to the account's owner (chosen at import, editable under Accounts; "Joint" works too);
+  purchases typed in by hand belong to whoever entered them. Budgets stay household-wide and show
+  who spent what.
 - **Spouse sharing without the cloud.** See below.
 - **Privacy screen** (on by default) blocks screenshots and hides balances in the recent-apps view.
   **App lock** (optional) asks for fingerprint, face or the phone PIN.
@@ -48,7 +53,10 @@ import, budget or category change appears on the other phone within about a seco
 alerts fire on both. A quiet "Sharing is on / Live with …" notification keeps the connection alive
 while the app is in the background (Android otherwise pauses background apps within seconds); it can
 be turned off under *Share with spouse*. Each phone remembers the other's address, so they reconnect
-on their own even on networks that block device discovery. When you're apart, each phone keeps working and they catch up automatically
+on their own even on networks that block device discovery. Every connection starts with a full
+catch-up in both directions, and changes only count as delivered once the other phone confirms it
+saved them, so nothing imported on one phone can be silently missed by the other. *Share with
+spouse → Status* shows how many transactions and statements each phone holds. When you're apart, each phone keeps working and they catch up automatically
 the next time they're on the same network. For a catch-up without shared Wi-Fi, save an encrypted
 sync file and send it with Quick Share, Bluetooth or USB.
 

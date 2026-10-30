@@ -44,7 +44,15 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.AEADBadTagException
 import kotlin.coroutines.resume
 
-data class PeerInfo(val deviceId: String, val name: String, val address: String, val lastActivity: Long)
+data class PeerInfo(
+    val deviceId: String,
+    val name: String,
+    val address: String,
+    val lastActivity: Long,
+    /** What the other phone reported holding after its last save; null until it confirms. */
+    val transactions: Int? = null,
+    val statements: Int? = null,
+)
 
 data class SyncUiState(
     val configured: Boolean = false,
@@ -86,8 +94,13 @@ class SyncManager(
         val channel: FramedChannel,
         /** True for the one connection both phones agree to keep when they dial each other at once. */
         val preferred: Boolean,
+        val protocol: Int,
         @Volatile var lastActivity: Long = System.currentTimeMillis(),
     ) {
+        /** Newest change the other phone has confirmed saving (our clock). */
+        @Volatile var ackedUpTo: Long = 0
+        @Volatile var peerTransactions: Int? = null
+        @Volatile var peerStatements: Int? = null
         val sendMutex = Mutex()
     }
 
@@ -373,7 +386,7 @@ class SyncManager(
     fun syncNow() {
         scope.launch(Dispatchers.IO) {
             connectKnown()
-            connections.values.forEach { c -> runCatching { sendChanges(c) } }
+            connections.values.forEach { c -> runCatching { sendChanges(c, full = true) } }
         }
     }
 
@@ -392,7 +405,7 @@ class SyncManager(
             // phone with the smaller id. Both sides apply the same rule, so they keep the same one.
             val dialer = if (outgoing) prefs.deviceId else hello.deviceId
             val preferred = dialer == minOf(prefs.deviceId, hello.deviceId)
-            val newConn = Connection(hello.deviceId, hello.deviceName, socket.inetAddress, ch, preferred)
+            val newConn = Connection(hello.deviceId, hello.deviceName, socket.inetAddress, ch, preferred, hello.protocol)
             val replaced: Connection?
             synchronized(connections) {
                 val existing = connections[hello.deviceId]
@@ -414,7 +427,8 @@ class SyncManager(
                         ch.send(SyncMessage.Ping)
                     }
                 }
-                launch { sendChanges(newConn) }
+                // Every new connection starts with a full catch-up, so nothing missed earlier stays missing.
+                launch { sendChanges(newConn, full = true) }
                 withContext(Dispatchers.IO) {
                     while (isActive) {
                         when (val msg = ch.receive()) {
@@ -425,7 +439,22 @@ class SyncManager(
                                 if (result.applied > 0) {
                                     log("Received ${result.applied} update(s) from ${newConn.name}")
                                     if (result.newSpending.isNotEmpty()) alerts.check(triggeredBy = newConn.name)
+                                } else if (msg.full) {
+                                    log("Checked everything with ${newConn.name}: already up to date")
                                 }
+                                // Saved: tell the sender, with our totals so both screens can compare.
+                                if (msg.sentAt > 0) {
+                                    val (t, st, a) = repo.counts()
+                                    newConn.channel.send(SyncMessage.Ack(msg.sentAt, t, st, a))
+                                }
+                                publishPeers()
+                            }
+                            is SyncMessage.Ack -> {
+                                newConn.ackedUpTo = maxOf(newConn.ackedUpTo, msg.upTo)
+                                newConn.peerTransactions = msg.transactions
+                                newConn.peerStatements = msg.statements
+                                newConn.lastActivity = System.currentTimeMillis()
+                                _state.update { it.copy(lastSyncAt = newConn.lastActivity) }
                                 publishPeers()
                             }
                             else -> newConn.lastActivity = System.currentTimeMillis()
@@ -445,16 +474,27 @@ class SyncManager(
         }
     }
 
-    /** Sends everything changed since the last successful send to this peer. */
-    private suspend fun sendChanges(conn: Connection) = conn.sendMutex.withLock {
-        val since = prefs.watermark(conn.deviceId)
+    /**
+     * Sends changes the other phone hasn't confirmed yet ([full] = everything).
+     * Changes only count as delivered when the other phone sends back an [SyncMessage.Ack]; a send
+     * into a connection that silently died is simply sent again next time.
+     */
+    private suspend fun sendChanges(conn: Connection, full: Boolean = false) = conn.sendMutex.withLock {
         val startedAt = System.currentTimeMillis()
-        val bundle = repo.changesSince(if (since == 0L) 0L else since - CLOCK_MARGIN_MS)
-        if (!bundle.isEmpty()) {
-            conn.channel.send(SyncMessage.Changes(bundle))
-            log("Sent ${bundle.size} update(s) to ${conn.name}")
+        if (conn.protocol < 2) {
+            // Older app on the other phone: it can't acknowledge, so fall back to send-and-hope.
+            val since = if (full) 0L else prefs.watermark(conn.deviceId)
+            val bundle = repo.changesSince(if (since == 0L) 0L else since - CLOCK_MARGIN_MS)
+            if (!bundle.isEmpty()) conn.channel.send(SyncMessage.Changes(bundle))
+            prefs.setWatermark(conn.deviceId, startedAt)
+        } else {
+            val since = if (full || conn.ackedUpTo == 0L) 0L else conn.ackedUpTo - CLOCK_MARGIN_MS
+            val bundle = repo.changesSince(since)
+            if (full || !bundle.isEmpty()) {
+                conn.channel.send(SyncMessage.Changes(bundle, sentAt = startedAt, full = full))
+                if (!bundle.isEmpty()) log("Sent ${bundle.size} update(s) to ${conn.name}")
+            }
         }
-        prefs.setWatermark(conn.deviceId, startedAt)
         conn.lastActivity = System.currentTimeMillis()
         _state.update { it.copy(lastSyncAt = conn.lastActivity) }
     }
@@ -470,7 +510,7 @@ class SyncManager(
     fun fullResync() {
         scope.launch(Dispatchers.IO) {
             prefs.clearWatermarks()
-            connections.values.forEach { c -> runCatching { sendChanges(c) } }
+            connections.values.forEach { c -> runCatching { sendChanges(c, full = true) } }
         }
     }
 
@@ -509,7 +549,11 @@ class SyncManager(
 
     private fun publishPeers() {
         _state.update { s ->
-            s.copy(peers = connections.values.map { PeerInfo(it.deviceId, it.name, it.address.hostAddress ?: "", it.lastActivity) })
+            s.copy(
+                peers = connections.values.map {
+                    PeerInfo(it.deviceId, it.name, it.address.hostAddress ?: "", it.lastActivity, it.peerTransactions, it.peerStatements)
+                },
+            )
         }
     }
 

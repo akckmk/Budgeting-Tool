@@ -35,6 +35,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -64,7 +68,8 @@ fun HomeScreen(
     onEdit: (Txn) -> Unit,
 ) {
     val statements by vm.statements.collectAsStateWithLifecycle()
-    val bills = remember(statements) { com.budgetingtool.app.insights.BillingCycles.upcomingBills(statements, LocalDate.now()) }
+    val allBills = remember(statements) { com.budgetingtool.app.insights.BillingCycles.upcomingBills(statements, LocalDate.now()) }
+    var showOwners by remember { mutableStateOf(false) }
     val txns by vm.txns.collectAsStateWithLifecycle()
     val cats by vm.categoryMap.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
@@ -73,19 +78,41 @@ fun HomeScreen(
     val month = YearMonth.now()
     val accountMap = remember(accounts) { accounts.associateBy { it.id } }
     val statuses = remember(txns, cats, budgets) { BudgetMath.statuses(budgets, txns, cats, month) }
-    val spent = remember(txns, cats) { BudgetMath.totalSpending(txns, cats, month) }
+    // Budgets are household-wide; spending, tips and activity follow the Combined / person view.
+    val visible by vm.visibleTxns.collectAsStateWithLifecycle()
+    val person by vm.viewPerson.collectAsStateWithLifecycle()
+    val bills = allBills.filter { b -> person == null || accounts.firstOrNull { it.id == b.accountId }?.owner.equals(person, ignoreCase = true) }
+    val spent = remember(visible, cats) { BudgetMath.totalSpending(visible, cats, month) }
+    val householdSpent = remember(txns, cats) { BudgetMath.totalSpending(txns, cats, month) }
     val total = statuses.firstOrNull { it.isTotal }
     val warnAt = vm.warnPercent / 100.0
     val greeting = vm.userName.takeIf { it.isNotBlank() }?.let { "Hi, $it 👋" } ?: "Hi there 👋"
-    val coachTips = remember(txns, cats) { SavingsCoach(txns, cats).tips() }
+    val coachTips = remember(visible, cats) { SavingsCoach(visible, cats).tips() }
     val coachMonthly = coachTips.sumOf { it.monthlyCents }
     val topTip = coachTips.firstOrNull()?.let { "Biggest win: ${it.title.replaceFirstChar { c -> c.lowercase() }}." }
 
     ScreenScaffold(greeting, actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } }) { p ->
         LazyColumn(Modifier.fillMaxSize().padding(p), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp)) {
+            item { PersonSwitcher(vm, Modifier.padding(bottom = 10.dp)) }
+            val unowned = accounts.filter { it.owner.isBlank() }
+            if (unowned.isNotEmpty() || vm.userName.isBlank()) {
+                item {
+                    BubbleCard(Bubble.Coral, Modifier.padding(bottom = 10.dp).clickable { showOwners = true }, light = true) {
+                        Text("👥 Whose accounts are these?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (unowned.isNotEmpty()) "${unowned.size} account(s) have no owner yet, so their spending isn't in anyone's personal view. Tap to assign them."
+                            else "Add your name so your spending shows under your own view.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
             item {
                 BubbleCard(Bubble.Violet) {
-                    Text("Spent in ${month.format(Dates.monthFormat)}", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.9f))
+                    Text(
+                        (person?.let { "$it spent in " } ?: "Spent in ") + month.format(Dates.monthFormat),
+                        style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.9f),
+                    )
                     Text(Money.format(spent), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold)
                     if (total != null) {
                         Spacer(Modifier.height(8.dp))
@@ -106,6 +133,12 @@ fun HomeScreen(
                             },
                             style = MaterialTheme.typography.bodyLarge,
                         )
+                        if (person != null && householdSpent > 0) {
+                            Text(
+                                "The bar is the household total (${Money.format(householdSpent, false)}). $person's share: ${spent * 100 / householdSpent}%.",
+                                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f),
+                            )
+                        }
                     } else {
                         Text("Set a monthly limit on the Budgets tab to see how you're pacing.", style = MaterialTheme.typography.bodyLarge)
                     }
@@ -174,10 +207,51 @@ fun HomeScreen(
                 item { SectionTitle("Budgets this month") }
                 items(categoryStatuses.take(6), key = { it.budget.id }) { BudgetBar(it, warnAt) }
             }
-            if (txns.isNotEmpty()) {
+            if (visible.isNotEmpty()) {
                 item { SectionTitle("Recent activity") { TextButton(onClick = onSeeAll) { Text("See all") } } }
-                items(txns.take(10), key = { it.id }) { TxnRow(it, cats, accountMap, onEdit) }
+                items(visible.take(10), key = { it.id }) { TxnRow(it, cats, accountMap, onEdit) }
             }
         }
     }
+
+    if (showOwners) OwnersDialog(vm, accounts, onDismiss = { showOwners = false })
+}
+
+/** Assigns an owner to each account (and asks for this phone's name), so person views are complete. */
+@Composable
+private fun OwnersDialog(vm: MainViewModel, accounts: List<com.budgetingtool.app.data.Account>, onDismiss: () -> Unit) {
+    val people by vm.people.collectAsStateWithLifecycle()
+    var name by remember { mutableStateOf(vm.userName) }
+    val choices = (listOf(name.trim()) + people + "Joint").filter { it.isNotBlank() && it != com.budgetingtool.app.insights.People.UNASSIGNED }.distinct()
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Whose accounts are these?") },
+        text = {
+            androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    androidx.compose.material3.OutlinedTextField(
+                        name, { name = it }, label = { Text("Your name on this phone") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                items(accounts, key = { it.id }) { a ->
+                    Column {
+                        Text(a.name, style = MaterialTheme.typography.bodyLarge)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            choices.forEach { who ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = a.owner.equals(who, ignoreCase = true),
+                                    onClick = { vm.saveAccount(a, a.name, a.institution, a.type, a.last4 ?: "", who) },
+                                    label = { Text(who) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { if (name.isNotBlank()) vm.updateUserName(name.trim()); onDismiss() }) { Text("Done") }
+        },
+    )
 }

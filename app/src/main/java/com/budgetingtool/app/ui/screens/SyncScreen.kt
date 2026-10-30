@@ -183,6 +183,22 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
                         } else {
                             s.peers.forEach { StatusLine(true, "Live with ${it.name}") }
                         }
+                        val myTxns by vm.txns.collectAsStateWithLifecycle()
+                        val myStatements by vm.statements.collectAsStateWithLifecycle()
+                        Text("This phone: ${myTxns.size} transactions · ${myStatements.size} statements", style = MaterialTheme.typography.bodyMedium)
+                        s.peers.forEach { peer ->
+                            val t = peer.transactions
+                            if (t == null) {
+                                Text("${peer.name}'s phone: checking…", style = MaterialTheme.typography.bodyMedium)
+                            } else {
+                                val same = t == myTxns.size && peer.statements == myStatements.size
+                                Text(
+                                    "${peer.name}'s phone: $t transactions · ${peer.statements ?: 0} statements " + if (same) "✓ in sync" else "· catching up",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (same) OkColor else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
                         s.lastError?.let { Text("⚠️ $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                         if (s.lastSyncAt > 0) {
                             Text("Last synced ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(s.lastSyncAt))}", style = MaterialTheme.typography.bodySmall)
