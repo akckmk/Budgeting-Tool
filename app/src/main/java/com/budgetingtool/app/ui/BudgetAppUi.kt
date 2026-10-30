@@ -38,6 +38,7 @@ import com.budgetingtool.app.ui.screens.AccountsScreen
 import com.budgetingtool.app.ui.screens.AddEntrySheet
 import com.budgetingtool.app.ui.screens.BudgetsScreen
 import com.budgetingtool.app.ui.screens.CoachScreen
+import com.budgetingtool.app.ui.screens.CyclesScreen
 import com.budgetingtool.app.ui.screens.EditTxnDialog
 import com.budgetingtool.app.ui.screens.HomeScreen
 import com.budgetingtool.app.ui.screens.ImportScreen
@@ -117,6 +118,7 @@ fun BudgetAppUi(vm: MainViewModel = viewModel()) {
                     onSharing = { nav.navigate("sync") },
                     onCoach = { nav.navigate("coach") { launchSingleTop = true } },
                     onSettings = { nav.navigate("more") },
+                    onCycles = { nav.navigate("cycles") },
                     onEdit = { editing = it },
                 )
             }
@@ -129,6 +131,7 @@ fun BudgetAppUi(vm: MainViewModel = viewModel()) {
             composable("accounts") { AccountsScreen(vm, onBack = { nav.popBackStack() }) }
             composable("sync") { SyncScreen(vm, onBack = { nav.popBackStack() }) }
             composable("rules") { RulesScreen(vm, onBack = { nav.popBackStack() }) }
+            composable("cycles") { CyclesScreen(vm, onBack = { nav.popBackStack() }) }
         }
     }
 

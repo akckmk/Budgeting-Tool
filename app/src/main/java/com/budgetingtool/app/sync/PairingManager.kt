@@ -121,6 +121,7 @@ class PairingManager(
             val key = prefs.householdCode
             return if (allowed && key != null) {
                 ch.send(SyncMessage.JoinAccepted(SyncCrypto.normalize(key), deviceName()))
+                socket.inetAddress.hostAddress?.let { sync.rememberPeer(it, SyncManager.DEFAULT_PORT) }
                 _state.update { it.copy(lastResult = "${req.deviceName} joined your household. Your data now syncs between your phones.") }
                 true
             } else {
@@ -200,7 +201,7 @@ class PairingManager(
                     when (val reply = ch.receive()) {
                         is SyncMessage.JoinAccepted -> {
                             if (sync.adoptHousehold(reply.householdKey)) {
-                                // Helps where discovery is blocked; harmless otherwise.
+                                // Remembered so the phones find each other even where discovery is blocked.
                                 sync.connectManually(target.address.hostAddress ?: target.hostString, SyncManager.DEFAULT_PORT)
                                 _state.update { it.copy(joinStatus = null, lastResult = "You're in! Now sharing with ${reply.inviterName}.") }
                             }

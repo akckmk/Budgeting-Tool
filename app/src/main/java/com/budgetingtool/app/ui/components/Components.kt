@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -78,7 +80,8 @@ fun ScreenScaffold(
                 actions = actions,
             )
         },
-        contentWindowInsets = if (onBack == null) WindowInsets(0, 0, 0, 0) else WindowInsets.navigationBars,
+        // Include the keyboard so focused text fields are never hidden behind it.
+        contentWindowInsets = if (onBack == null) WindowInsets.ime else WindowInsets.navigationBars.union(WindowInsets.ime),
         content = content,
     )
 }

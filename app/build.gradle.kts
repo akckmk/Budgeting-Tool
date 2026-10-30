@@ -16,8 +16,8 @@ android {
         applicationId = "com.budgetingtool.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         // Phones are ARM; leaving out x86 keeps the OCR engine's native code out of the download twice.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
@@ -58,6 +58,11 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+}
+
+ksp {
+    // Schema history lets Room verify upgrades between app versions.
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

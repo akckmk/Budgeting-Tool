@@ -34,6 +34,10 @@ data class Account(
     val owner: String = "",
     val updatedAt: Long,
     val deleted: Boolean = false,
+    /** Day of the month the statement closes (cards), learned from a statement or set by hand. */
+    val closingDay: Int? = null,
+    /** Day of the month the payment is due. */
+    val dueDay: Int? = null,
 )
 
 @Serializable
@@ -92,6 +96,31 @@ data class Txn(
     val deleted: Boolean = false,
 )
 
+/**
+ * One statement as printed by the bank: its exact billing period, balance and due date.
+ * Id is deterministic per account and closing date, so re-imports and both phones agree.
+ */
+@Serializable
+@Entity(tableName = "statements", indices = [Index("accountId")])
+data class Statement(
+    @PrimaryKey val id: String,
+    val accountId: String,
+    /** LocalDate.toEpochDay() of the first day in the billing period. */
+    val periodStart: Long,
+    /** LocalDate.toEpochDay() of the closing date. */
+    val periodEnd: Long,
+    /** For cards: amount owed at close (positive). For bank accounts: the ending balance. */
+    val closingBalanceCents: Long? = null,
+    val dueDate: Long? = null,
+    val minPaymentCents: Long? = null,
+    val updatedAt: Long,
+    val deleted: Boolean = false,
+) {
+    companion object {
+        fun idFor(accountId: String, periodEnd: Long) = "stmt_${accountId}_$periodEnd"
+    }
+}
+
 /** "Anything containing WEGMANS is Groceries" */
 @Serializable
 @Entity(tableName = "rules")
@@ -115,7 +144,8 @@ data class SyncBundle(
     val budgets: List<Budget> = emptyList(),
     val transactions: List<Txn> = emptyList(),
     val rules: List<CategoryRule> = emptyList(),
+    val statements: List<Statement> = emptyList(),
 ) {
-    val size: Int get() = accounts.size + categories.size + budgets.size + transactions.size + rules.size
+    val size: Int get() = accounts.size + categories.size + budgets.size + transactions.size + rules.size + statements.size
     fun isEmpty() = size == 0
 }

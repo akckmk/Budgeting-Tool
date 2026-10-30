@@ -7,6 +7,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -112,10 +114,25 @@ interface TxnDao {
     suspend fun upsert(items: List<Txn>)
 }
 
+@Dao
+interface StatementDao {
+    @Query("SELECT * FROM statements WHERE deleted = 0 ORDER BY periodEnd DESC")
+    fun observeActive(): Flow<List<Statement>>
+
+    @Query("SELECT * FROM statements WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<Statement>
+
+    @Query("SELECT * FROM statements WHERE updatedAt > :since")
+    suspend fun changedSince(since: Long): List<Statement>
+
+    @Upsert
+    suspend fun upsert(items: List<Statement>)
+}
+
 @Database(
-    entities = [Account::class, Category::class, Budget::class, Txn::class, CategoryRule::class],
-    version = 1,
-    exportSchema = false,
+    entities = [Account::class, Category::class, Budget::class, Txn::class, CategoryRule::class, Statement::class],
+    version = 2,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun accountDao(): AccountDao
@@ -123,9 +140,27 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun ruleDao(): RuleDao
     abstract fun txnDao(): TxnDao
+    abstract fun statementDao(): StatementDao
 
     companion object {
+        /** 1.2.0: billing cycles. Adds each card's closing/due day and a table of statements. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `closingDay` INTEGER")
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `dueDay` INTEGER")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `statements` (`id` TEXT NOT NULL, `accountId` TEXT NOT NULL, " +
+                        "`periodStart` INTEGER NOT NULL, `periodEnd` INTEGER NOT NULL, `closingBalanceCents` INTEGER, " +
+                        "`dueDate` INTEGER, `minPaymentCents` INTEGER, `updatedAt` INTEGER NOT NULL, " +
+                        "`deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_statements_accountId` ON `statements` (`accountId`)")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, "budget.db").build()
+            Room.databaseBuilder(context, AppDatabase::class.java, "budget.db")
+                .addMigrations(MIGRATION_1_2)
+                .build()
     }
 }

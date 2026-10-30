@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.UploadFile
@@ -58,6 +59,7 @@ fun MoreScreen(vm: MainViewModel, onBack: () -> Unit, onNavigate: (String) -> Un
         LazyColumn(Modifier.fillMaxSize().padding(p), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { NavRow(Icons.Default.UploadFile, "Import statements", "CSV, QFX/OFX, QIF, PDF") { onNavigate("import") } }
             item { NavRow(Icons.Default.AccountBalance, "Accounts", "Cards and bank accounts") { onNavigate("accounts") } }
+            item { NavRow(Icons.Default.CreditCard, "Cards & billing cycles", "Statements, cycles and upcoming bills") { onNavigate("cycles") } }
             item {
                 NavRow(
                     Icons.Default.People, "Share with spouse",
@@ -162,7 +164,7 @@ fun AccountsScreen(vm: MainViewModel, onBack: () -> Unit) {
         AccountDialog(
             existing = editing,
             defaultOwner = vm.userName,
-            onSave = { name, inst, type, last4, owner -> vm.saveAccount(editing, name, inst, type, last4, owner); adding = false; editing = null },
+            onSave = { name, inst, type, last4, owner, closing, due -> vm.saveAccount(editing, name, inst, type, last4, owner, closing, due); adding = false; editing = null },
             onDelete = editing?.let { a -> { vm.deleteAccount(a); editing = null } },
             onDismiss = { adding = false; editing = null },
         )
@@ -173,7 +175,7 @@ fun AccountsScreen(vm: MainViewModel, onBack: () -> Unit) {
 private fun AccountDialog(
     existing: Account?,
     defaultOwner: String,
-    onSave: (String, String, AccountType, String, String) -> Unit,
+    onSave: (String, String, AccountType, String, String, Int?, Int?) -> Unit,
     onDelete: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
@@ -182,6 +184,8 @@ private fun AccountDialog(
     var type by remember { mutableStateOf(existing?.type ?: AccountType.CREDIT_CARD) }
     var last4 by remember { mutableStateOf(existing?.last4 ?: "") }
     var owner by remember { mutableStateOf(existing?.owner ?: defaultOwner) }
+    var closing by remember { mutableStateOf(existing?.closingDay?.toString() ?: "") }
+    var due by remember { mutableStateOf(existing?.dueDay?.toString() ?: "") }
     var confirmDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -193,9 +197,24 @@ private fun AccountDialog(
                 Picker("Type", AccountType.entries, type, { it.label }, { type = it })
                 OutlinedTextField(last4, { last4 = it.filter(Char::isDigit).take(4) }, label = { Text("Last 4 digits (optional)") }, singleLine = true)
                 OutlinedTextField(owner, { owner = it }, label = { Text("Owner (e.g. your name or Joint)") }, singleLine = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        closing, { closing = it.filter(Char::isDigit).take(2) }, label = { Text("Statement closes on day") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                    OutlinedTextField(
+                        due, { due = it.filter(Char::isDigit).take(2) }, label = { Text("Payment due day") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                }
+                Text("Filled in automatically when you import a PDF statement.", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(name, institution, type, last4, owner) }, enabled = name.isNotBlank()) { Text("Save") } },
+        confirmButton = {
+            TextButton(onClick = { onSave(name, institution, type, last4, owner, closing.toIntOrNull(), due.toIntOrNull()) }, enabled = name.isNotBlank()) { Text("Save") }
+        },
         dismissButton = {
             if (onDelete != null) {
                 TextButton(onClick = { if (confirmDelete) onDelete() else confirmDelete = true }) {

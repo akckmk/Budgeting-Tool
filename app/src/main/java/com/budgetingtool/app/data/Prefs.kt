@@ -44,6 +44,16 @@ class Prefs(context: Context) {
         e.apply()
     }
 
+    /** Last-known addresses ("ip:port") of the other phone(s), so they can reconnect without discovery. */
+    var knownPeers: Set<String>
+        get() = sp.getStringSet("known_peers", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("known_peers", v).apply()
+
+    /** Keep a small foreground service running so sync continues while the app is in the background. */
+    var backgroundSync: Boolean
+        get() = sp.getBoolean("background_sync", true)
+        set(v) = sp.edit().putBoolean("background_sync", v).apply()
+
     fun alertLevel(key: String): Int = sp.getInt("alert_$key", 0)
     fun setAlertLevel(key: String, level: Int) = sp.edit().putInt("alert_$key", level).apply()
 

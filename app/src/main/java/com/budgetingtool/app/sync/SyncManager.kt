@@ -1,6 +1,8 @@
 package com.budgetingtool.app.sync
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
@@ -53,6 +55,8 @@ data class SyncUiState(
     val peers: List<PeerInfo> = emptyList(),
     val lastSyncAt: Long = 0,
     val log: List<String> = emptyList(),
+    /** Most recent connection problem, shown on the sharing screen. Cleared on success. */
+    val lastError: String? = null,
 )
 
 /**
@@ -80,6 +84,8 @@ class SyncManager(
         val name: String,
         val address: InetAddress,
         val channel: FramedChannel,
+        /** True for the one connection both phones agree to keep when they dial each other at once. */
+        val preferred: Boolean,
         @Volatile var lastActivity: Long = System.currentTimeMillis(),
     ) {
         val sendMutex = Mutex()
@@ -95,6 +101,8 @@ class SyncManager(
     private val connections = ConcurrentHashMap<String, Connection>()
     private val endpoints = ConcurrentHashMap<String, Endpoint>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
+    private val lastDialError = ConcurrentHashMap<String, String>()
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var nsd: NsdManager? = null
     private var registration: NsdManager.RegistrationListener? = null
     private var discovery: NsdManager.DiscoveryListener? = null
@@ -128,11 +136,14 @@ class SyncManager(
         prefs.clearWatermarks()
         _state.update { SyncUiState(configured = true, householdCode = code) }
         start(code)
+        SyncService.start(appContext)
     }
 
     fun leaveHousehold() {
+        SyncService.stop(appContext)
         stop()
         prefs.householdCode = null
+        prefs.knownPeers = emptySet()
         prefs.clearWatermarks()
         _state.value = SyncUiState()
     }
@@ -158,6 +169,8 @@ class SyncManager(
             launch { acceptLoop(ss) }
             launch { reconnectLoop() }
             launch { liveSender() }
+            watchNetwork()
+            connectKnown() // don't wait for the first retry tick
         }
     }
 
@@ -172,6 +185,8 @@ class SyncManager(
         connections.clear()
         endpoints.clear()
         stopNsd()
+        networkCallback?.let { cb -> runCatching { connectivity().unregisterNetworkCallback(cb) } }
+        networkCallback = null
         _state.update { it.copy(running = false, peers = emptyList()) }
     }
 
@@ -273,6 +288,7 @@ class SyncManager(
                 return@launch
             }
             endpoints["manual:$host:$port"] = Endpoint(addr, null, manual = true)
+            rememberPeer(addr.address.hostAddress ?: host.trim(), port)
             connectKnown()
         }
     }
@@ -290,29 +306,46 @@ class SyncManager(
 
     private suspend fun reconnectLoop() {
         while (true) {
-            delay(20_000)
+            delay(RETRY_MS)
             connectKnown()
         }
     }
 
-    private fun connectKnown() {
+    /** Remembers where the other phone was reachable, so it can be found again without discovery. */
+    fun rememberPeer(host: String, port: Int) {
+        if (host.isBlank() || port <= 0) return
+        val entry = "$host:$port"
+        prefs.knownPeers = (listOf(entry) + prefs.knownPeers.filter { it != entry }).take(MAX_KNOWN_PEERS).toSet()
+    }
+
+    /** Dials every address we know for the other phone (discovered, typed, or remembered) that isn't connected. */
+    fun connectKnown() {
         val session = session ?: return
-        for ((key, ep) in endpoints) {
+        val targets = HashMap<String, Endpoint>(endpoints)
+        prefs.knownPeers.forEach { entry ->
+            val host = entry.substringBeforeLast(':')
+            val port = entry.substringAfterLast(':').toIntOrNull() ?: return@forEach
+            targets.putIfAbsent("known:$entry", Endpoint(InetSocketAddress.createUnresolved(host, port), null, manual = true))
+        }
+        for ((key, ep) in targets) {
             val already = if (ep.peerShortId != null) {
                 connections.keys.any { it.replace("-", "").startsWith(ep.peerShortId) }
             } else {
-                connections.values.any { it.address == ep.address.address }
+                connections.values.any { it.address.hostAddress == ep.address.hostString }
             }
-            // Only one side dials for discovered peers, so the two phones don't race.
-            val shouldDial = ep.manual || (ep.peerShortId != null && shortId < ep.peerShortId)
-            if (already || !shouldDial || !connecting.add(key)) continue
+            if (already || !connecting.add(key)) continue
+            // Both phones dial; if they meet twice, [handle] keeps the same single connection on both sides.
             session.launch(Dispatchers.IO) {
                 try {
+                    val addr = if (ep.address.isUnresolved) InetSocketAddress(InetAddress.getByName(ep.address.hostString), ep.address.port) else ep.address
                     val s = Socket()
-                    s.connect(ep.address, 5_000)
-                    handle(s)
+                    s.connect(addr, 5_000)
+                    lastDialError.remove(key)
+                    handle(s, outgoing = true)
                 } catch (e: Exception) {
-                    if (ep.manual) log("Couldn't reach ${ep.address.address.hostAddress}: ${e.message}")
+                    val why = "Couldn't reach ${ep.address.hostString}:${ep.address.port} (${e.message ?: e.javaClass.simpleName})"
+                    if (lastDialError.put(key, why) != why) log(why)
+                    _state.update { it.copy(lastError = if (connections.isEmpty()) why else null) }
                 } finally {
                     connecting.remove(key)
                 }
@@ -320,20 +353,58 @@ class SyncManager(
         }
     }
 
-    private suspend fun handle(socket: Socket) {
+    /** Wi-Fi came back or changed: refresh our address and try the other phone right away. */
+    private fun watchNetwork() {
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                _state.update { it.copy(localAddress = localIpv4()) }
+                session?.launch { delay(1_500); connectKnown() }
+            }
+            override fun onLost(network: Network) {
+                _state.update { it.copy(localAddress = localIpv4()) }
+            }
+        }
+        runCatching { connectivity().registerDefaultNetworkCallback(cb) }.onSuccess { networkCallback = cb }
+    }
+
+    private fun connectivity() = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    /** Tries to connect now and pushes anything unsent. */
+    fun syncNow() {
+        scope.launch(Dispatchers.IO) {
+            connectKnown()
+            connections.values.forEach { c -> runCatching { sendChanges(c) } }
+        }
+    }
+
+    private suspend fun handle(socket: Socket, outgoing: Boolean = false) {
         val c = crypto ?: return socket.close()
         socket.tcpNoDelay = true
         socket.soTimeout = 90_000
         val ch = FramedChannel(socket, c)
         var conn: Connection? = null
         try {
-            ch.send(SyncMessage.Hello(prefs.deviceId, deviceName()))
+            ch.send(SyncMessage.Hello(prefs.deviceId, deviceName(), port = server?.localPort ?: 0))
             val hello = withContext(Dispatchers.IO) { ch.receive() } as? SyncMessage.Hello
                 ?: throw IllegalStateException("Unexpected handshake")
             if (hello.deviceId == prefs.deviceId) return ch.close()
-            val newConn = Connection(hello.deviceId, hello.deviceName, socket.inetAddress, ch)
-            if (connections.putIfAbsent(hello.deviceId, newConn) != null) return ch.close()
+            // If both phones dial each other at the same moment, keep the connection dialed by the
+            // phone with the smaller id. Both sides apply the same rule, so they keep the same one.
+            val dialer = if (outgoing) prefs.deviceId else hello.deviceId
+            val preferred = dialer == minOf(prefs.deviceId, hello.deviceId)
+            val newConn = Connection(hello.deviceId, hello.deviceName, socket.inetAddress, ch, preferred)
+            val replaced: Connection?
+            synchronized(connections) {
+                val existing = connections[hello.deviceId]
+                if (existing != null && (existing.preferred || !preferred)) return ch.close()
+                replaced = existing
+                connections[hello.deviceId] = newConn
+            }
+            replaced?.channel?.close()
             conn = newConn
+            socket.inetAddress.hostAddress?.let { ip -> if (hello.port > 0) rememberPeer(ip, hello.port) }
+            lastDialError.clear()
+            _state.update { it.copy(lastError = null) }
             publishPeers()
             log("Connected to ${hello.deviceName}")
             coroutineScope {
@@ -363,7 +434,8 @@ class SyncManager(
                 }
             }
         } catch (e: AEADBadTagException) {
-            log("A phone with a different household code tried to connect and was refused.")
+            log("A phone with a different household key tried to connect and was refused.")
+            _state.update { it.copy(lastError = "The other phone has a different household key. Stop sharing on it and join again with a new invite.") }
         } catch (e: Exception) {
             conn?.let { log("Disconnected from ${it.name}") }
         } finally {
@@ -459,6 +531,8 @@ class SyncManager(
         internal const val SERVICE_TYPE = "_budgettool._tcp."
         private const val SERVICE_PREFIX = "BudgetingTool-"
         private const val CLOCK_MARGIN_MS = 2 * 60_000L
+        private const val RETRY_MS = 10_000L
+        private const val MAX_KNOWN_PEERS = 4
         private val FILE_MAGIC = "BTSYNC1\n".toByteArray()
     }
 }

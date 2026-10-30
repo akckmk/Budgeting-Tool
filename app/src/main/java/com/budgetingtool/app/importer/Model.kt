@@ -13,6 +13,16 @@ data class ParsedTxn(
     val externalId: String? = null,
 )
 
+/** What a statement says about its own billing period. Any part may be missing. */
+data class StatementInfo(
+    val periodStart: LocalDate?,
+    val periodEnd: LocalDate,
+    /** Cards: amount owed at close (positive). Bank accounts: ending balance. */
+    val closingBalanceCents: Long? = null,
+    val dueDate: LocalDate? = null,
+    val minPaymentCents: Long? = null,
+)
+
 data class ParseResult(
     val format: String,
     val transactions: List<ParsedTxn>,
@@ -21,6 +31,7 @@ data class ParseResult(
     val last4: String? = null,
     val warnings: List<String> = emptyList(),
     val error: String? = null,
+    val statement: StatementInfo? = null,
 ) {
     companion object {
         fun error(format: String, message: String) = ParseResult(format, emptyList(), error = message)

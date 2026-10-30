@@ -129,13 +129,21 @@ class ImportViewModel(app: Application) : AndroidViewModel(app) {
                 )
             val rows = p.result.transactions.filterIndexed { i, _ -> i in p.selected }
             val summary = c.repo.importParsed(account, rows, p.flip)
+            p.result.statement?.let { c.repo.saveStatement(account, it) }
             c.alerts.check()
             addMessage(
                 buildString {
                     append("${p.fileName}: imported ${summary.added - summary.matchedManual} new")
                     if (summary.matchedManual > 0) append(", matched ${summary.matchedManual} purchases you entered by hand")
                     if (summary.duplicates > 0) append(", skipped ${summary.duplicates} already imported")
+                    if (summary.matchedOtherStatement > 0) append(" (${summary.matchedOtherStatement} of them from another file of the same account)")
                     append(" into ${account.name}.")
+                    p.result.statement?.let { st ->
+                        append(" Statement ${st.periodStart?.format(com.budgetingtool.app.util.Dates.shortFormat) ?: "?"} – ${st.periodEnd.format(com.budgetingtool.app.util.Dates.shortFormat)}")
+                        st.closingBalanceCents?.let { append(", balance ${com.budgetingtool.app.util.Money.format(it)}") }
+                        st.dueDate?.let { append(", due ${it.format(com.budgetingtool.app.util.Dates.shortFormat)}") }
+                        append(".")
+                    }
                 },
             )
             _state.update { it.copy(busy = false, preview = null) }

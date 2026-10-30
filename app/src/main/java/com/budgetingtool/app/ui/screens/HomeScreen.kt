@@ -60,8 +60,11 @@ fun HomeScreen(
     onSharing: () -> Unit,
     onCoach: () -> Unit,
     onSettings: () -> Unit,
+    onCycles: () -> Unit,
     onEdit: (Txn) -> Unit,
 ) {
+    val statements by vm.statements.collectAsStateWithLifecycle()
+    val bills = remember(statements) { com.budgetingtool.app.insights.BillingCycles.upcomingBills(statements, LocalDate.now()) }
     val txns by vm.txns.collectAsStateWithLifecycle()
     val cats by vm.categoryMap.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
@@ -105,6 +108,20 @@ fun HomeScreen(
                         )
                     } else {
                         Text("Set a monthly limit on the Budgets tab to see how you're pacing.", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+            if (bills.isNotEmpty()) {
+                item {
+                    BubbleCard(Bubble.Sky, Modifier.padding(top = 10.dp).clickable(onClick = onCycles), light = true) {
+                        Text("💳 Card bills coming up", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        bills.take(3).forEach { st ->
+                            val name = accounts.firstOrNull { it.id == st.accountId }?.name ?: "Card"
+                            Text(
+                                "$name: ${Money.format(st.closingBalanceCents ?: 0)} due ${LocalDate.ofEpochDay(st.dueDate!!).format(Dates.shortFormat)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
             }

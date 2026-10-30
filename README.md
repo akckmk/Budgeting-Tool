@@ -18,6 +18,13 @@ to, and share everything live with your spouse's phone with no cloud account.
   phone with the open-source Tesseract engine (no Google ML Kit, no network); the photo is held in
   memory only and never saved or uploaded. Picking a photo uses Android's photo picker, so the app
   only sees the one image you choose.
+- **Card billing cycles.** Every card closes on its own day. PDF statements are read for their
+  billing period, balance, minimum and due date; the app learns each card's closing and due day and
+  shows the current cycle (with a projected statement), past cycles checked against the statement
+  balance ("✓ Matches the statement"), gaps where a statement is missing, and upcoming bills on Home.
+  Budgets still count purchases by the day you made them, so cycles never skew a month. Overlapping
+  files (two statements, or the PDF and CSV of the same month) are de-duplicated even when the
+  descriptions are worded differently.
 - **Budget alerts.** A notification at your warning threshold (default 80%) and when you go over, per
   category and overall. Purchases your spouse enters trigger alerts on your phone too.
 - **Savings coach.** Plain-language habits ("About 14 coffee runs a month", "Food delivery 5× a
@@ -38,7 +45,10 @@ to, and share everything live with your spouse's phone with no cloud account.
 
 From then on, while both phones are on the same Wi-Fi (or one phone's hotspot), every purchase,
 import, budget or category change appears on the other phone within about a second, and budget
-alerts fire on both. When you're apart, each phone keeps working and they catch up automatically
+alerts fire on both. A quiet "Sharing is on / Live with …" notification keeps the connection alive
+while the app is in the background (Android otherwise pauses background apps within seconds); it can
+be turned off under *Share with spouse*. Each phone remembers the other's address, so they reconnect
+on their own even on networks that block device discovery. When you're apart, each phone keeps working and they catch up automatically
 the next time they're on the same network. For a catch-up without shared Wi-Fi, save an encrypted
 sync file and send it with Quick Share, Bluetooth or USB.
 
@@ -54,6 +64,11 @@ Why this is safe:
   without it can't read anything or inject changes, even on the same network.
 - There is no server and no account. Nothing about your finances is sent to Google, GitHub, or us.
 
+If the phones don't connect: make sure both are on the same Wi-Fi network (not a guest network,
+which usually blocks phones from seeing each other), open *Share with spouse* and check the warning
+under *Status*, then tap **Sync now**. *Connect by IP* (the address is shown under *Status* on the
+other phone) works when discovery is blocked.
+
 Truly live sync while the phones are on *different* networks (e.g. one at work) would need an
 internet relay server, which would mean your data passing through someone else's computer. This app
 deliberately doesn't do that.
@@ -63,8 +78,8 @@ deliberately doesn't do that.
 - Data lives in the app's private storage on each phone, which Android encrypts on the device.
   Cloud backup is disabled (`allowBackup=false`, and the data-extraction rules exclude everything).
 - The release build is not debuggable, so the data can't be pulled off the phone over USB.
-- Permissions: local network, notifications, fingerprint, camera (receipts only, asked the first time). No
-  contacts, location, storage or accounts.
+- Permissions: local network, notifications, fingerprint, camera (receipts only, asked the first time),
+  and a foreground service for background sharing. No contacts, location, storage or accounts.
 - No analytics or third-party SDKs that talk to the internet.
 - Uninstalling deletes the data on that phone. Keep the other phone paired, or save a sync file, as a
   backup.

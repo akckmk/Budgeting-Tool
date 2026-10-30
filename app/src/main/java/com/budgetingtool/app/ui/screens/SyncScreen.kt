@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +66,7 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
     var joinCode by remember { mutableStateOf("") }
     var joinHost by remember { mutableStateOf("") }
     var showManual by remember { mutableStateOf(false) }
+    var showJoin by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
     var spouseEmail by remember { mutableStateOf("") }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri -> uri?.let(vm::exportSync) }
@@ -160,29 +162,9 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
             if (!s.configured) {
                 item { SectionTitle("Phone 2: join with an invite") }
                 item {
-                    OutlinedTextField(
-                        joinCode, { joinCode = it },
-                        label = { Text("Invite code") },
-                        placeholder = { Text("XXXX-XXXX-XXXX") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    TextButton(onClick = { showManual = !showManual }) { Text(if (showManual) "Hide IP option" else "Can't find the other phone? Enter its IP") }
-                    if (showManual) {
-                        OutlinedTextField(joinHost, { joinHost = it.trim() }, label = { Text("Other phone's IP (shown on its invite)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    }
-                    Button(
-                        onClick = { vm.joinWithInvite(joinCode, joinHost.ifBlank { null }) },
-                        enabled = joinCode.isNotBlank() && !pairing.joining,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Join household") }
-                    pairing.joinStatus?.let {
-                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (pairing.joining) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Text("  $it", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
+                    Text("Got an invite code by email or text? Connect to the same Wi-Fi as the other phone, then:", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = { showJoin = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Enter invite code") }
+                    pairing.joinStatus?.let { StatusText(it, pairing.joining) }
                 }
             }
 
@@ -201,6 +183,7 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
                         } else {
                             s.peers.forEach { StatusLine(true, "Live with ${it.name}") }
                         }
+                        s.lastError?.let { Text("⚠️ $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                         if (s.lastSyncAt > 0) {
                             Text("Last synced ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(s.lastSyncAt))}", style = MaterialTheme.typography.bodySmall)
                         }
@@ -208,8 +191,16 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = vm::fullResync, enabled = s.peers.isNotEmpty()) { Text("Resend everything") }
+                        Button(onClick = vm::syncNow) { Text("Sync now") }
                         OutlinedButton(onClick = { showManual = true }) { Text("Connect by IP") }
+                    }
+                    TextButton(onClick = vm::fullResync, enabled = s.peers.isNotEmpty()) { Text("Resend everything to the other phone") }
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Keep syncing in the background", style = MaterialTheme.typography.bodyLarge)
+                            Text("Shows a quiet notification. Without it, Android pauses syncing a few seconds after you leave the app.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        androidx.compose.material3.Switch(checked = vm.backgroundSync, onCheckedChange = vm::updateBackgroundSync)
                     }
                 }
                 item { SectionTitle("Not on the same Wi-Fi?") }
@@ -233,6 +224,40 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (showJoin) {
+        AlertDialog(
+            onDismissRequest = { if (!pairing.joining) showJoin = false },
+            title = { Text("Join with invite code") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        joinCode, { joinCode = it },
+                        label = { Text("Invite code") },
+                        placeholder = { Text("XXXX-XXXX-XXXX") },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
+                    )
+                    OutlinedTextField(
+                        joinHost, { joinHost = it.trim() },
+                        label = { Text("Other phone's IP (optional)") },
+                        supportingText = { Text("Shown on the other phone's invite. Use it if the phones can't find each other.") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    )
+                    pairing.joinStatus?.let { StatusText(it, pairing.joining) }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { vm.joinWithInvite(joinCode, joinHost.ifBlank { null }) }, enabled = joinCode.isNotBlank() && !pairing.joining) { Text("Join") }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (pairing.joining) vm.cancelJoin() else showJoin = false }) { Text(if (pairing.joining) "Stop" else "Close") }
+            },
+        )
+        LaunchedEffect(s.configured) { if (s.configured) showJoin = false }
     }
 
     pairing.pendingRequestFrom?.let { who ->
@@ -273,6 +298,14 @@ fun SyncScreen(vm: MainViewModel, onBack: () -> Unit) {
             confirmButton = { TextButton(onClick = { vm.leaveHousehold(); confirmLeave = false }) { Text("Stop sharing") } },
             dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun StatusText(text: String, busy: Boolean) {
+    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        Text(if (busy) "  $text" else text, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

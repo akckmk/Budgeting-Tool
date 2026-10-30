@@ -49,6 +49,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Foreground services may only be started while the app is visible.
+        com.budgetingtool.app.sync.SyncService.start(this)
+        container.sync.connectKnown()
         val away = backgroundedAt > 0 && SystemClock.elapsedRealtime() - backgroundedAt > RELOCK_AFTER_MS
         if (away) unlocked = false
         if (container.prefs.appLock && !unlocked) authenticate()

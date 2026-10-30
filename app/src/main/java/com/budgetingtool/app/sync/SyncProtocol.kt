@@ -19,7 +19,13 @@ import java.net.Socket
 sealed class SyncMessage {
     @Serializable
     @SerialName("hello")
-    data class Hello(val deviceId: String, val deviceName: String, val protocol: Int = PROTOCOL_VERSION) : SyncMessage()
+    data class Hello(
+        val deviceId: String,
+        val deviceName: String,
+        val protocol: Int = PROTOCOL_VERSION,
+        /** The sender's listening port, so the other phone can dial back later. 0 = unknown (older app). */
+        val port: Int = 0,
+    ) : SyncMessage()
 
     @Serializable
     @SerialName("changes")

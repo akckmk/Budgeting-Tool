@@ -54,7 +54,9 @@ object PdfStatementParser {
         val upper = text.uppercase()
         val cardMarkers = listOf("CREDIT LIMIT", "MINIMUM PAYMENT DUE", "PAYMENT DUE DATE", "CREDIT ACCESS LINE", "AVAILABLE CREDIT", "CASH ADVANCE")
         val isCard = cardMarkers.count { upper.contains(it) } >= 2
-        val end = statementEndDate(upper, today)
+        val info = statementInfo(upper, today)
+        // The printed closing date is the best anchor for statements that only show MM/DD.
+        val end = info?.periodEnd ?: statementEndDate(upper, today)
 
         var section = 0
         var prevBalance: Long? = null
@@ -115,6 +117,7 @@ object PdfStatementParser {
             accountType = if (isCard) AccountType.CREDIT_CARD else AccountType.CHECKING,
             last4 = last4,
             warnings = warnings,
+            statement = info,
         )
     }
 
@@ -127,6 +130,38 @@ object PdfStatementParser {
             neg && !pos -> -1
             else -> null
         }
+    }
+
+    private const val DATE = """(\d{1,2}/\d{1,2}/\d{2,4}|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.? \d{1,2},? \d{4})"""
+    private const val MONEY = """\$?\s?(-?[\d,]+\.\d{2})"""
+    private val periodRegex = Regex(
+        """(?:OPENING/CLOSING DATE|STATEMENT PERIOD|BILLING PERIOD|BILLING CYCLE|STATEMENT DATES?|FOR THE PERIOD|PERIOD COVERED|ACCOUNT PERIOD)[:\s]*(?:FROM\s+)?$DATE\s*(?:-|–|—|TO|THROUGH|THRU)\s*$DATE""",
+    )
+    private val closingRegex = Regex("""(?:STATEMENT CLOSING DATE|CLOSING DATE|STATEMENT DATE|CYCLE END(?:ING)? DATE)[:\s]*$DATE""")
+    private val dueRegex = Regex("""(?:PAYMENT DUE DATE|DUE DATE)[:\s]*$DATE""")
+    private val balanceRegex = Regex("""(?:NEW BALANCE|STATEMENT BALANCE|ENDING BALANCE|CLOSING BALANCE)[:\s]*$MONEY""")
+    private val minRegex = Regex("""MINIMUM (?:PAYMENT|AMOUNT) DUE[:\s]*$MONEY""")
+
+    private fun parseDate(raw: String): LocalDate? = raw.replace(".", "").let { Dates.parse(it) ?: Dates.parse(it.replace(",", "")) }
+
+    /** The statement's own billing period, balance and due date, when the PDF prints them. */
+    fun statementInfo(upper: String, today: LocalDate): StatementInfo? {
+        val text = upper.replace(Regex("[ \t]+"), " ")
+        val sane = { d: LocalDate? -> d?.takeIf { it.year >= 2000 && it <= today.plusDays(60) } }
+        val period = periodRegex.find(text)
+        var start = period?.let { sane(parseDate(it.groupValues[1])) }
+        var end = period?.let { sane(parseDate(it.groupValues[2])) }
+        if (end == null) end = closingRegex.find(text)?.let { sane(parseDate(it.groupValues[1])) }
+        end ?: return null
+        if (start != null && (start >= end || start < end.minusDays(45))) start = null
+        val due = dueRegex.find(text)?.let { parseDate(it.groupValues[1]) }?.takeIf { it >= end && it <= end.plusDays(60) }
+        return StatementInfo(
+            periodStart = start ?: end.minusMonths(1).plusDays(1),
+            periodEnd = end,
+            closingBalanceCents = balanceRegex.find(text)?.let { Money.parseCents(it.groupValues[1]) },
+            dueDate = due,
+            minPaymentCents = minRegex.find(text)?.let { Money.parseCents(it.groupValues[1]) },
+        )
     }
 
     /** Latest full date printed on the statement (closing date, or the due date just after it). */

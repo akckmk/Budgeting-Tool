@@ -41,6 +41,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val accounts: StateFlow<List<Account>> = repo.accounts.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val budgets: StateFlow<List<Budget>> = repo.budgets.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val rules: StateFlow<List<CategoryRule>> = repo.rules.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val statements: StateFlow<List<com.budgetingtool.app.data.Statement>> =
+        repo.statements.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val syncState = c.sync.state
     val pairingState = c.pairing.state
 
@@ -108,11 +110,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- accounts / categories / rules ----
 
-    fun saveAccount(existing: Account?, name: String, institution: String, type: AccountType, last4: String, owner: String) =
-        viewModelScope.launch {
-            val base = existing ?: Account(newId(), name, institution, type, updatedAt = 0)
-            repo.saveAccount(base.copy(name = name.trim(), institution = institution.trim(), type = type, last4 = last4.trim().ifBlank { null }, owner = owner.trim()))
-        }
+    fun saveAccount(
+        existing: Account?, name: String, institution: String, type: AccountType, last4: String, owner: String,
+        closingDay: Int? = existing?.closingDay, dueDay: Int? = existing?.dueDay,
+    ) = viewModelScope.launch {
+        val base = existing ?: Account(newId(), name, institution, type, updatedAt = 0)
+        repo.saveAccount(
+            base.copy(
+                name = name.trim(), institution = institution.trim(), type = type, last4 = last4.trim().ifBlank { null },
+                owner = owner.trim(), closingDay = closingDay?.takeIf { it in 1..31 }, dueDay = dueDay?.takeIf { it in 1..31 },
+            ),
+        )
+    }
+
+    fun setCycleDays(a: Account, closingDay: Int?, dueDay: Int?) =
+        saveAccount(a, a.name, a.institution, a.type, a.last4 ?: "", a.owner, closingDay, dueDay)
 
     fun deleteAccount(a: Account) = viewModelScope.launch { repo.deleteAccount(a) }
     fun addCategory(name: String, emoji: String, kind: CategoryKind) = viewModelScope.launch {
@@ -134,6 +146,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         c.sync.leaveHousehold()
     }
     fun fullResync() = c.sync.fullResync()
+    fun syncNow() = c.sync.syncNow()
+
+    var backgroundSync by mutableStateOf(c.prefs.backgroundSync)
+        private set
+
+    fun updateBackgroundSync(v: Boolean) {
+        backgroundSync = v
+        c.prefs.backgroundSync = v
+        if (v) com.budgetingtool.app.sync.SyncService.start(getApplication()) else com.budgetingtool.app.sync.SyncService.stop(getApplication())
+    }
     fun connectManually(host: String, port: Int) = c.sync.connectManually(host, port)
 
     fun exportSync(uri: Uri) = viewModelScope.launch {
